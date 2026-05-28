@@ -1,11 +1,22 @@
-# src/doc_agent/parser.py
 import ast
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
 @dataclass
 class FunctionInfo:
+    """
+    Conteneur d'informations sur une fonction Python.
+
+    Attributes:
+        name: Nom de la fonction.
+        args: Liste des noms des paramètres.
+        returns: Type de retour annoté, ou None si absent.
+        has_docstring: Indique si la fonction possède une docstring.
+        lineno: Numéro de ligne du début de la fonction.
+        end_lineno: Numéro de ligne de la fin de la fonction.
+        source: Code source complet de la fonction.
+        decorators: Liste des décorateurs appliqués à la fonction.
+    """
     name: str
     args: list[str]
     returns: str | None
@@ -15,9 +26,19 @@ class FunctionInfo:
     source: str
     decorators: list[str] = field(default_factory=list)
 
-
 @dataclass
 class ClassInfo:
+    """
+    ClassInfo stores metadata about a Python class.
+
+    Attributes:
+        name: The name of the class.
+        bases: List of base class names inherited by this class.
+        has_docstring: Whether the class has a docstring.
+        lineno: The line number where the class definition starts.
+        end_lineno: The line number where the class definition ends.
+        methods: List of FunctionInfo objects representing the class methods.
+    """
     name: str
     bases: list[str]
     has_docstring: bool
@@ -25,15 +46,23 @@ class ClassInfo:
     end_lineno: int
     methods: list[FunctionInfo] = field(default_factory=list)
 
-
 @dataclass
 class ModuleInfo:
+    """
+    Contient les informations extraites d'un module Python.
+
+    Attributes:
+        path: Chemin du fichier module.
+        has_docstring: Indique si le module possède une docstring.
+        functions: Liste des fonctions définies dans le module.
+        classes: Liste des classes définies dans le module.
+        imports: Liste des déclarations d'import du module.
+    """
     path: Path
     has_docstring: bool
     functions: list[FunctionInfo] = field(default_factory=list)
     classes: list[ClassInfo] = field(default_factory=list)
     imports: list[str] = field(default_factory=list)
-
 
 def _get_docstring(node: ast.AST) -> bool:
     """Vérifie si un nœud AST possède déjà une docstring."""
@@ -41,7 +70,6 @@ def _get_docstring(node: ast.AST) -> bool:
         return False
     val = node.body[0].value
     return isinstance(val, ast.Constant) and isinstance(val.value, str)
-
 
 def _extract_args(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
     """Extrait les noms des arguments (hors self/cls)."""
@@ -51,18 +79,15 @@ def _extract_args(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
             args.append(arg.arg)
     return args
 
-
 def _get_return_annotation(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str | None:
     """Récupère l'annotation de retour si présente."""
     if node.returns is None:
         return None
     return ast.unparse(node.returns)
 
-
 def _extract_decorators(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
     """Récupère les noms des décorateurs."""
     return [ast.unparse(d) for d in node.decorator_list]
-
 
 def parse_file(path: Path) -> ModuleInfo:
     """
@@ -130,6 +155,21 @@ def parse_file(path: Path) -> ModuleInfo:
             module.classes.append(class_info)
     
     return module
+
+
+def extract_class_attributes(path: Path) -> dict[str, list[str]]:
+    """Retourne {class_name: ["attr: type", ...]} pour chaque classe du fichier."""
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(path))
+    result: dict[str, list[str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            result[node.name] = [
+                f"{item.target.id}: {ast.unparse(item.annotation)}"
+                for item in node.body
+                if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name)
+            ]
+    return result
 
 
 def scan_python_files(root: Path) -> list[ModuleInfo]:
